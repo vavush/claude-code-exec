@@ -52,7 +52,7 @@
 #
 # ── Environment ─────────────────────────────────────────────────────
 #
-#   CC_LOG_DIR  — Log directory (default: ~/.cc-phaser/logs)
+#   CC_LOG_DIR  — Log directory (default: ~/.claude-code-exec/logs)
 #
 #   All CC_EXECUTOR_* and CC_* env vars are passed through to
 #   cc-executor.sh automatically.
@@ -61,14 +61,14 @@
 #
 #   cc-orchestrate.sh /path/to/SPEC.md /path/to/project
 #
-# License: MIT (https://opensource.org/licenses/MIT)
+# License: MIT — see https://github.com/vavush/claude-code-exec
 
 set -euo pipefail
 
 # ── Paths ───────────────────────────────────────────────────────────
 SPEC_FILE="${1:?Usage: $0 <spec_file> [workdir]}"
 WORKDIR="${2:-$(pwd)}"
-CC_LOG_DIR="${CC_LOG_DIR:-$HOME/.cc-phaser/logs}"
+CC_LOG_DIR="${CC_LOG_DIR:-$HOME/.claude-code-exec/logs}"
 
 # Resolve executor path: same directory as this script, or in PATH
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

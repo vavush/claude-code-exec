@@ -20,7 +20,7 @@
 #                 Overrides 'model' arg when set. Omit for manual model selection.
 #
 # Environment variables:
-#   CC_LOG_DIR      — Log directory (default: ~/.cc-phaser/logs)
+#   CC_LOG_DIR      — Log directory (default: ~/.claude-code-exec/logs)
 #   CC_FAST_MODEL   — Model for 'fast' profile (default: gemma4:cloud)
 #   CC_EXACT_MODEL  — Model for 'exact' profile (default: glm-5.2:cloud)
 #
@@ -32,12 +32,12 @@
 #
 # Monitor mid-flight with: cc-monitor.sh status <session_id>
 #
-# License: MIT — see https://opensource.org/licenses/MIT
+# License: MIT — see https://github.com/vavush/claude-code-exec
 
 set -euo pipefail
 
 # ── Configuration ───────────────────────────────────────────────────
-CC_LOG_DIR="${CC_LOG_DIR:-$HOME/.cc-phaser/logs}"
+CC_LOG_DIR="${CC_LOG_DIR:-$HOME/.claude-code-exec/logs}"
 CC_FAST_MODEL="${CC_FAST_MODEL:-gemma4:cloud}"
 CC_EXACT_MODEL="${CC_EXACT_MODEL:-glm-5.2:cloud}"
 

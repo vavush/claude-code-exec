@@ -1,6 +1,6 @@
-# cc-phaser — Managed Execution & Phase Orchestration for Claude Code
+# claude-code-exec — Managed Execution & Phase Orchestration for Claude Code
 
-**cc-phaser** solves the reliability gap in Claude Code's print mode: long-running builds time out silently, max turns are hit with partial output, and there's no way to recover or monitor progress.
+**claude-code-exec** solves the reliability gap in Claude Code's print mode: long-running builds time out silently, max turns are hit with partial output, and there's no way to recover or monitor progress.
 
 It provides three tools that wrap `ollama launch claude -p` with timeout safety, progress visibility, and phased orchestration:
 
@@ -50,14 +50,14 @@ For complex builds spanning 8+ files and 50+ turns, these failure modes make eve
 
 ```bash
 # Clone the repo
-git clone https://github.com/<your-username>/cc-phaser.git
-cd cc-phaser
+git clone https://github.com/vavush/claude-code-exec.git
+cd claude-code-exec
 
 # Install to /usr/local/bin (or set PREFIX)
 sudo make install
 
 # Or add bin/ to your PATH manually
-export PATH="$PATH:/path/to/cc-phaser/bin"
+export PATH="$PATH:/path/to/claude-code-exec/bin"
 ```
 
 ---
@@ -136,7 +136,7 @@ Profiles:
   exact        → Uses $CC_EXACT_MODEL (default: glm-5.2:cloud) — flagship model
 
 Environment:
-  CC_LOG_DIR      Log directory (default: ~/.cc-phaser/logs)
+  CC_LOG_DIR      Log directory (default: ~/.claude-code-exec/logs)
   CC_FAST_MODEL   Model for 'fast' profile (default: gemma4:cloud)
   CC_EXACT_MODEL  Model for 'exact' profile (default: glm-5.2:cloud)
 
@@ -197,10 +197,10 @@ The instruction block (after `---`) is passed as the Claude Code prompt. Each ph
 
 ## Log Structure
 
-Each session creates a directory under `$CC_LOG_DIR` (default: `~/.cc-phaser/logs/`):
+Each session creates a directory under `$CC_LOG_DIR` (default: `~/.claude-code-exec/logs/`):
 
 ```
-~/.cc-phaser/logs/
+~/.claude-code-exec/logs/
   cc-1719360000/          # Single executor session
     heartbeat             # Timestamps (every 30s) proving process was alive
     output.log            # Periodic tmux pane captures
@@ -259,7 +259,7 @@ For `glm-5.2:cloud` (exact profile) and similar-sized models:
 
 ## Integration with Agent Frameworks
 
-cc-phaser is agent-framework agnostic. It works with:
+claude-code-exec is agent-framework agnostic. It works with:
 
 - **Hermes Agent** — the original environment where these scripts were developed. Set `CC_LOG_DIR` to `~/.hermes/logs/claude-code/` for Hermes compatibility.
 - **Any bash/Tmux host** — standalone with no agent framework required.

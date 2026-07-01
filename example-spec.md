@@ -1,4 +1,7 @@
-# example-spec.md — Example phased spec for cc-orchestrate.sh
+# example-spec.md — Example phased spec for claude-code-exec
+#
+# Repository: https://github.com/vavush/claude-code-exec
+# License: MIT
 #
 # Copy and adapt this file for your own builds.
 # Each phase runs independently. Metadata lines before '---' configure

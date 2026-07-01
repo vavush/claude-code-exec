@@ -3,7 +3,7 @@
 PREFIX ?= /usr/local
 
 install:
-	@echo "Installing cc-phaser scripts to $(PREFIX)/bin..."
+	@echo "Installing claude-code-exec scripts to $(PREFIX)/bin..."
 	install -m 755 bin/cc-executor.sh $(PREFIX)/bin/cc-executor.sh
 	install -m 755 bin/cc-orchestrate.sh $(PREFIX)/bin/cc-orchestrate.sh
 	install -m 755 bin/cc-monitor.sh $(PREFIX)/bin/cc-monitor.sh

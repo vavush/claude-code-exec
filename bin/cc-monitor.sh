@@ -11,13 +11,13 @@
 # Legacy: claude-code-<epoch> (converted automatically)
 #
 # Environment:
-#   CC_LOG_DIR  — Log directory (default: ~/.cc-phaser/logs)
+#   CC_LOG_DIR  — Log directory (default: ~/.claude-code-exec/logs)
 #
-# License: MIT (https://opensource.org/licenses/MIT)
+# License: MIT — see https://github.com/vavush/claude-code-exec
 
 set -euo pipefail
 
-CC_LOG_DIR="${CC_LOG_DIR:-$HOME/.cc-phaser/logs}"
+CC_LOG_DIR="${CC_LOG_DIR:-$HOME/.claude-code-exec/logs}"
 CMD="${1:-help}"
 
 # ── Help ────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ if [ "$CMD" = "help" ] || [ "$CMD" = "--help" ] || [ "$CMD" = "-h" ]; then
   echo "Session ID examples: cc-1719360000  or  claude-code-1719360000"
   echo ""
   echo "Environment:"
-  echo "  CC_LOG_DIR  — Log directory (default: ~/.cc-phaser/logs)"
+  echo "  CC_LOG_DIR  — Log directory (default: ~/.claude-code-exec/logs)"
   exit 0
 fi
 
