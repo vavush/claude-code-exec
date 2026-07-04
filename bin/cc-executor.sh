@@ -9,15 +9,17 @@
 #   - Profile-based model routing (fast / exact)
 #
 # Usage:
-#   cc-executor.sh <prompt> [max_turns] [timeout_secs] [model] [workdir] [profile]
+#   cc-executor.sh <prompt> [max_turns] [timeout_secs] [model] [workdir] [profile] [reading_heavy]
 #
-#   <prompt>    — Required. The task prompt (single-line with escaped quotes)
-#   max_turns   — Max agentic loops (default: 50)
-#   timeout     — Max seconds before SIGTERM (default: 1800)
-#   model       — Ollama model name (default: glm-5.2:cloud, overridden by profile)
-#   workdir     — Working directory for Claude Code (default: current directory)
-#   profile     — Named model profile: 'fast' or 'exact'. See CC_FAST_MODEL / CC_EXACT_MODEL env vars.
-#                 Overrides 'model' arg when set. Omit for manual model selection.
+#   <prompt>       — Required. The task prompt (single-line with escaped quotes)
+#   max_turns      — Max agentic loops (default: 50)
+#   timeout        — Max seconds before SIGTERM (default: 1800)
+#   model          — Ollama model name (default: glm-5.2:cloud, overridden by profile)
+#   workdir        — Working directory for Claude Code (default: current directory)
+#   profile        — Named model profile: 'fast' or 'exact'. See CC_FAST_MODEL / CC_EXACT_MODEL env vars.
+#                    Overrides 'model' arg when set. Omit for manual model selection.
+#   reading_heavy  — 1 if task requires reading spec + 5+ source files first (default: 0)
+#                    Applies 2x duration penalty for more accurate estimation.
 #
 # Environment variables:
 #   CC_LOG_DIR      — Log directory (default: ~/.claude-code-exec/logs)
@@ -29,6 +31,8 @@
 #   1   — Claude Code hit max turns or error (partial work may exist on disk)
 #   124 — timed out (SIGTERM, partial output captured in log)
 #   2   — internal error (tmux missing, workdir invalid, unknown profile)
+#   3   — BACKGROUND_NEEDED: estimated duration >600s. Re-issue with background=true.
+#         Stderr contains: {"warning":"BACKGROUND_NEEDED","estimated_seconds":N,"max_turns":N}
 #
 # Monitor mid-flight with: cc-monitor.sh status <session_id>
 #
@@ -42,12 +46,13 @@ CC_FAST_MODEL="${CC_FAST_MODEL:-gemma4:cloud}"
 CC_EXACT_MODEL="${CC_EXACT_MODEL:-glm-5.2:cloud}"
 
 # ── Inputs ──────────────────────────────────────────────────────────
-PROMPT="${1:?Usage: $0 <prompt> [max_turns] [timeout_secs] [model] [workdir] [profile]}"
+PROMPT="${1:?Usage: $0 <prompt> [max_turns] [timeout_secs] [model] [workdir] [profile] [reading_heavy]}"
 MAX_TURNS="${2:-50}"
 TIMEOUT="${3:-1800}"
 MODEL="${4:-glm-5.2:cloud}"
 WORKDIR="${5:-$(pwd)}"
 PROFILE="${6:-}"
+READING_HEAVY="${7:-0}"
 
 # ── Profile-based model routing (overrides MODEL when set) ──────────
 if [ -n "$PROFILE" ]; then
@@ -59,6 +64,37 @@ if [ -n "$PROFILE" ]; then
       exit 2
       ;;
   esac
+fi
+
+# ── Pre-flight duration estimation ──────────────────────────────────
+# Estimates whether the task will exceed the 600s foreground cap.
+# If so, prints a structured warning to stderr and exits 3 so the
+# caller can re-issue with background=true.
+#
+# Per-turn estimates (real-world data from glm-5.2:cloud via ollama launch):
+#   fast  (gemma4:cloud): ~2.5s/turn
+#   exact (glm-5.2:cloud): ~4.5s/turn
+#
+# Formula: estimated = max_turns × secs_per_turn × (1 + file_count_factor)
+#   file_count_factor = 1.0 if reading_heavy, 0.5 otherwise
+FOREGROUND_CAP=600
+case "$MODEL" in
+  gemma4:cloud|gemma4*)  SECS_PER_TURN=2.5 ;;
+  *)                     SECS_PER_TURN=4.5 ;;
+esac
+
+if [ "$READING_HEAVY" = "1" ]; then
+  FILE_FACTOR=1.0
+else
+  FILE_FACTOR=0.5
+fi
+
+ESTIMATED=$(echo "$MAX_TURNS * $SECS_PER_TURN * (1 + $FILE_FACTOR)" | bc -l | cut -d. -f1)
+
+if [ "$ESTIMATED" -gt "$FOREGROUND_CAP" ] 2>/dev/null; then
+  WARNING="{\"warning\":\"BACKGROUND_NEEDED\",\"estimated_seconds\":${ESTIMATED},\"max_turns\":${MAX_TURNS},\"model\":\"${MODEL}\",\"reading_heavy\":${READING_HEAVY}}"
+  echo "$WARNING" >&2
+  exit 3
 fi
 
 # ── Paths ───────────────────────────────────────────────────────────
