@@ -13,7 +13,7 @@
 #
 #   <prompt>    — Required. The task prompt (single-line with escaped quotes)
 #   max_turns   — Max agentic loops (default: 50)
-#   timeout     — Max seconds before SIGTERM (default: 600)
+#   timeout     — Max seconds before SIGTERM (default: 1800)
 #   model       — Ollama model name (default: glm-5.2:cloud, overridden by profile)
 #   workdir     — Working directory for Claude Code (default: current directory)
 #   profile     — Named model profile: 'fast' or 'exact'. See CC_FAST_MODEL / CC_EXACT_MODEL env vars.
@@ -44,7 +44,7 @@ CC_EXACT_MODEL="${CC_EXACT_MODEL:-glm-5.2:cloud}"
 # ── Inputs ──────────────────────────────────────────────────────────
 PROMPT="${1:?Usage: $0 <prompt> [max_turns] [timeout_secs] [model] [workdir] [profile]}"
 MAX_TURNS="${2:-50}"
-TIMEOUT="${3:-600}"
+TIMEOUT="${3:-1800}"
 MODEL="${4:-glm-5.2:cloud}"
 WORKDIR="${5:-$(pwd)}"
 PROFILE="${6:-}"

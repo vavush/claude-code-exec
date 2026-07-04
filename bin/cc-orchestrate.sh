@@ -136,7 +136,7 @@ if current_block_start is not None:
 defaults = {
     'model': 'exact',
     'max_turns': '25',
-    'timeout': '300',
+    'timeout': '600',
     'verify': '',
     'skip': 'false',
     'instructions': ''
