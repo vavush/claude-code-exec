@@ -65,18 +65,18 @@ export PATH="$PATH:/path/to/claude-code-exec/bin"
 ## Quick Start — Single Task
 
 ```bash
-# Basic usage: prompt, max_turns, timeout, model, workdir, profile
+# Basic usage: prompt, max_turns, timeout, model, workdir, profile, reading_heavy
 cc-executor.sh \
   "Add error handling to all API calls in src/" \
   50 600 glm-5.2:cloud \
   /path/to/your/project \
-  exact
+  exact 0
 
 # Using profile-based model routing (fast → cheap model, exact → flagship):
 cc-executor.sh \
   "Add error handling to all API calls in src/" \
   50 600 "" /path/to/your/project \
-  exact
+  exact 0
 
 # The executor prints a JSON summary on stdout:
 # {"session_id":"cc-1719360000","exit_code":0,"status":"completed","duration_seconds":312,...}
@@ -121,15 +121,16 @@ The orchestrator runs Phase 1 (gemma4:cloud, 15 turns, verifies), then Phase 2 (
 ### cc-executor.sh
 
 ```
-Usage: cc-executor.sh <prompt> [max_turns] [timeout_secs] [model] [workdir] [profile]
+Usage: cc-executor.sh <prompt> [max_turns] [timeout_secs] [model] [workdir] [profile] [reading_heavy]
 
 Args:
-  prompt       Required. The task prompt (single-line, escaped quotes)
-  max_turns    Max agentic loops (default: 50)
-  timeout      Max seconds before SIGTERM (default: 600)
-  model        Ollama model name (default: glm-5.2:cloud, overridden by profile)
-  workdir      Working directory (default: current directory)
-  profile      Model profile: 'fast' or 'exact'. Overrides model arg.
+  prompt         Required. The task prompt (single-line, escaped quotes)
+  max_turns      Max agentic loops (default: 50)
+  timeout        Max seconds before SIGTERM (default: 1800)
+  model          Ollama model name (default: glm-5.2:cloud, overridden by profile)
+  workdir        Working directory (default: current directory)
+  profile        Model profile: 'fast' or 'exact'. Overrides model arg.
+  reading_heavy  1 if task reads a spec + 5+ source files first (default: 0)
 
 Profiles:
   fast         → Uses $CC_FAST_MODEL (default: gemma4:cloud) — cheaper, faster
@@ -145,6 +146,8 @@ Exit codes:
   1   Hit max turns or error (partial work may exist on disk)
   124 Timed out (SIGTERM, partial output captured in log)
   2   Internal error (tmux missing, workdir invalid, unknown profile)
+  3   BACKGROUND_NEEDED — estimated duration >600s. Re-issue with background=true.
+      Stderr contains: {"warning":"BACKGROUND_NEEDED","estimated_seconds":N,...}
 ```
 
 ### cc-monitor.sh
@@ -184,7 +187,7 @@ A spec file uses Markdown with `## Phase N:` headings. Each phase has:
 ## Phase N: Title
 model: fast|exact          # Model profile (default: exact)
 max_turns: N               # Max turns (default: 25)
-timeout: N                 # Max seconds (default: 300)
+timeout: N                 # Max seconds (default: 600)
 verify: shell_command      # Optional verify command (runs in workdir)
 skip: true|false           # Skip this phase (default: false)
 ---
@@ -229,17 +232,39 @@ Status values in summary.json:
 
 For `glm-5.2:cloud` (exact profile) and similar-sized models:
 
-| Task Type | Turns | Timeout | Profile |
-|-----------|-------|---------|---------|
-| Single-file read + one change | 10 | 120s | fast |
-| Multi-file investigation (3-5 files) | 40 | 300s | exact |
-| Multi-file build (8+ files, 2000+ lines) | 50 | 400s | exact |
-| Complex refactor with verification | 60 | 500s | exact |
-| Boilerplate / scaffolding | 15 | 150s | fast |
+| Task Type | Turns | Timeout | Mode | Profile |
+|-----------|-------|---------|------|---------|
+| Single-file read + one change | 10 | 120s | foreground | fast |
+| Multi-file investigation (3-5 files) | 40 | 300s | foreground | exact |
+| Multi-file build (8+ files, 2000+ lines) | 50 | 400s | foreground | exact |
+| Complex refactor with verification | 60 | 500s | foreground | exact |
+| Boilerplate / scaffolding | 15 | 150s | foreground | fast |
+| **Large / reading-heavy build** | **80** | **1800s** | **background** | **exact** |
 
 **Reading-heavy penalty:** If the prompt instructs Claude Code to read a large spec document (100+ lines) AND 5+ source files before writing, double the estimated timeout. Formula: `timeout = max_turns × 5 × (1 + 1.0 × file_count_factor)`.
 
-**Foreground cap:** If total timeout exceeds 600s, wrap `cc-orchestrate.sh` in a background shell process or reduce phase size.
+**Foreground cap:** If total timeout exceeds 600s, use background mode or reduce phase size.
+
+---
+
+## Pre-Flight Duration Estimation
+
+The executor has a built-in estimator that runs before launching Claude Code. It calculates:
+
+```
+estimated = max_turns × secs_per_turn × (1 + file_count_factor)
+```
+
+- `secs_per_turn`: 2.5s for `gemma4:cloud`, 4.5s for all other models
+- `file_count_factor`: 1.0 if `reading_heavy=1`, 0.5 otherwise
+
+If the estimate exceeds 600s, the executor **exits immediately with code 3** and prints a JSON warning to stderr:
+
+```json
+{"warning":"BACKGROUND_NEEDED","estimated_seconds":720,"max_turns":80,"model":"glm-5.2:cloud","reading_heavy":1}
+```
+
+The calling framework should catch exit code 3 and re-issue the same command with `background=true` + `notify_on_complete=true`. See the integration sections below for framework-specific handling.
 
 ---
 
@@ -259,11 +284,217 @@ For `glm-5.2:cloud` (exact profile) and similar-sized models:
 
 ## Integration with Agent Frameworks
 
-claude-code-exec is agent-framework agnostic. It works with:
+claude-code-exec is agent-framework agnostic. The scripts communicate via a simple contract:
 
-- **Hermes Agent** — the original environment where these scripts were developed. Set `CC_LOG_DIR` to `~/.hermes/logs/claude-code/` for Hermes compatibility.
-- **Any bash/Tmux host** — standalone with no agent framework required.
-- **CI pipelines** — the JSON summary on stdout can be parsed by GitHub Actions, GitLab CI, or any job runner.
+| Channel | Format | When |
+|---------|--------|------|
+| **stdout** | JSON summary (single line) | On completion |
+| **stderr** | JSON warning (single line) | On pre-flight failure (exit 3) |
+| **exit code** | Integer | On exit |
+| **log directory** | Filesystem | During execution |
+
+Any framework that can run a shell command, read stdout/stderr, and check exit codes can integrate these scripts.
+
+### Hermes Agent
+
+Hermes Agent is the original environment where these scripts were developed. Integration is done via the `claude-code-integration` skill.
+
+**Setup:**
+
+```bash
+# Set log dir for Hermes compatibility
+export CC_LOG_DIR="$HOME/.hermes/logs/claude-code"
+```
+
+**Calling from Hermes (foreground — tasks under 600s):**
+
+```python
+# Hermes terminal() call
+result = terminal(
+    command="bash cc-executor.sh \
+        \"Add error handling to all API calls in src/\" \
+        50 600 glm-5.2:cloud \
+        /path/to/project \
+        exact 0",
+    timeout=600
+)
+# Parse result.stdout as JSON summary
+```
+
+**Auto-background detection (tasks over 600s):**
+
+The executor exits code 3 when its pre-flight estimate exceeds 600s. Hermes should catch this and re-issue in background mode:
+
+```python
+result = terminal(
+    command="bash cc-executor.sh \
+        \"Large refactor across 12 files\" \
+        80 1800 glm-5.2:cloud \
+        /path/to/project \
+        exact 1",
+    timeout=600
+)
+
+if result.exit_code == 3:
+    # Parse stderr for the BACKGROUND_NEEDED warning
+    # Re-issue in background mode
+    terminal(
+        command="bash cc-executor.sh \
+            \"Large refactor across 12 files\" \
+            80 1800 glm-5.2:cloud \
+            /path/to/project \
+            exact 1",
+        background=True,
+        notify_on_complete=True
+    )
+```
+
+**Using the orchestrator from Hermes:**
+
+```python
+terminal(
+    command="bash cc-orchestrate.sh \
+        /path/to/SPEC.md \
+        /path/to/project",
+    timeout=500  # Outer safety net; each phase has its own timeout
+)
+```
+
+**Hermes skill reference:** The `claude-code-integration` skill (v5.0.0+) documents the full workflow: pre-flight checklist, timeout calculator, model profile routing (fast/exact), phased orchestration, and post-run verification. Install it via:
+
+```bash
+hermes skill install claude-code-integration
+```
+
+### OpenClaw / Generic Agent Frameworks
+
+Any agent framework that can run shell commands and parse JSON can integrate claude-code-exec. The contract is:
+
+**1. Parse the JSON summary from stdout:**
+
+```python
+import json, subprocess
+
+result = subprocess.run([
+    "cc-executor.sh",
+    "Add error handling to all API calls in src/",
+    "50", "600", "glm-5.2:cloud",
+    "/path/to/project",
+    "exact", "0"
+], capture_output=True, text=True, timeout=610)
+
+# Parse the last JSON line from stdout
+for line in reversed(result.stdout.strip().split("\n")):
+    if line.startswith("{"):
+        summary = json.loads(line)
+        break
+
+print(f"Session: {summary['session_id']}")
+print(f"Status: {summary['status']}")
+print(f"Duration: {summary['duration_seconds']}s")
+print(f"Log path: {summary['log_path']}")
+```
+
+**2. Handle exit code 3 (background needed):**
+
+```python
+if result.returncode == 3:
+    # Parse the warning from stderr
+    warning = json.loads(result.stderr.strip())
+    print(f"Task too long for foreground ({warning['estimated_seconds']}s estimated)")
+    print("Re-issue with background execution")
+    # In a real agent, spawn a background process here
+```
+
+**3. Monitor mid-flight:**
+
+```python
+# In a separate thread/process:
+status_result = subprocess.run(
+    ["cc-monitor.sh", "status", summary["session_id"]],
+    capture_output=True, text=True
+)
+print(status_result.stdout)
+```
+
+**4. Orchestrate multi-phase builds:**
+
+```python
+result = subprocess.run([
+    "cc-orchestrate.sh",
+    "/path/to/SPEC.md",
+    "/path/to/project"
+], capture_output=True, text=True)
+
+# Parse the final JSON summary
+for line in reversed(result.stdout.strip().split("\n")):
+    if line.startswith("{"):
+        summary = json.loads(line)
+        break
+
+if summary["all_passed"]:
+    print(f"All {summary['phases_total']} phases passed")
+else:
+    for phase in summary["phases"]:
+        if phase["status"] != "completed":
+            print(f"Failed: {phase['name']} ({phase['status']})")
+```
+
+**5. Environment variables for configuration:**
+
+```python
+import os
+os.environ["CC_LOG_DIR"] = "/var/log/claude-code"
+os.environ["CC_FAST_MODEL"] = "gemma4:cloud"
+os.environ["CC_EXACT_MODEL"] = "glm-5.2:cloud"
+```
+
+### CI Systems (GitHub Actions, GitLab CI)
+
+The JSON summary on stdout is designed for CI pipeline consumption.
+
+**GitHub Actions example:**
+
+```yaml
+- name: Run Claude Code build
+  id: claude
+  run: |
+    cc-executor.sh \
+      "Build the authentication module" \
+      50 600 glm-5.2:cloud \
+      ${{ github.workspace }} \
+      exact 0 > /tmp/cc-output.json 2>&1
+    echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+- name: Check result
+  run: |
+    SUMMARY=$(tail -1 /tmp/cc-output.json)
+    STATUS=$(echo "$SUMMARY" | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")
+    if [ "$STATUS" != "completed" ]; then
+      echo "Build failed: $STATUS"
+      exit 1
+    fi
+```
+
+**GitLab CI example:**
+
+```yaml
+claude-code-build:
+  script:
+    - cc-executor.sh "Build the auth module" 50 600 glm-5.2:cloud . exact 0 > cc-output.json
+    - python3 -c "
+import json
+with open('cc-output.json') as f:
+    for line in reversed(f.read().splitlines()):
+        if line.startswith('{'):
+            s = json.loads(line)
+            assert s['status'] == 'completed', f'Failed: {s[\"status\"]}'
+            break
+      "
+  artifacts:
+    paths:
+      - cc-output.json
+```
 
 ---
 
